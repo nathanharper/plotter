@@ -1,10 +1,7 @@
 import { URL } from 'node:url';
 import { Pool } from 'pg';
 
-let pool: Pool;
-
-if (process.env.DATABASE_URL) {
-  const params = new URL(process.env.DATABASE_URL);
+  const params = new URL(process.env.DATABASE_URL as string);
 
 const config = {
   user: params.username,
@@ -12,18 +9,10 @@ const config = {
   host: params.hostname,
   port: parseInt(params.port),
   database: params.pathname.split('/')[1],
+  ssl: true,
 };
 
-  pool = new Pool(config);
-} else {
-  pool = new Pool({
-    user: process.env.DB_USER || 'postgres',
-    host: process.env.DB_HOST || 'localhost',
-    database: process.env.DB_NAME || 'story_plotter',
-    password: process.env.DB_PASSWORD || 'password',
-    port: parseInt(process.env.DB_PORT || '5432'),
-  });
-}
+  const pool = new Pool(config);
 
 
 export interface Character {
