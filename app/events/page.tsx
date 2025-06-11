@@ -551,6 +551,7 @@ interface DropZoneProps {
 
 function DropZone({ index }: DropZoneProps) {
   const [isDraggedOver, setIsDraggedOver] = useState(false);
+  const [dragEnterTimeoutId, setDragEnterTimeoutId] = useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const dropZoneElement = document.querySelector(`[data-drop-zone="${index}"]`) as HTMLElement;
@@ -560,32 +561,76 @@ function DropZone({ index }: DropZoneProps) {
       element: dropZoneElement,
       getData: () => ({ type: 'drop-zone', index }),
       canDrop: ({ source }: { source: any }) => source.data.type === 'event',
-      onDragEnter: () => setIsDraggedOver(true),
-      onDragLeave: () => setIsDraggedOver(false),
-      onDrop: () => setIsDraggedOver(false),
+      onDragEnter: () => {
+        // Clear any existing timeout
+        if (dragEnterTimeoutId) {
+          clearTimeout(dragEnterTimeoutId);
+        }
+        setIsDraggedOver(true);
+      },
+      onDragLeave: () => {
+        // Use a small timeout to prevent flickering when cursor moves within the drop zone
+        const timeoutId = setTimeout(() => {
+          setIsDraggedOver(false);
+        }, 50);
+        setDragEnterTimeoutId(timeoutId);
+      },
+      onDrop: () => {
+        if (dragEnterTimeoutId) {
+          clearTimeout(dragEnterTimeoutId);
+        }
+        setIsDraggedOver(false);
+      },
     });
-  }, [index]);
+  }, [index, dragEnterTimeoutId]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (dragEnterTimeoutId) {
+        clearTimeout(dragEnterTimeoutId);
+      }
+    };
+  }, [dragEnterTimeoutId]);
 
   return (
     <Box
       data-drop-zone={index}
       sx={{
-        height: isDraggedOver ? '4px' : '16px',
+        height: '40px', // Much larger drop zone for easier targeting
         position: 'relative',
-        transition: 'height 0.2s ease',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        // Add some padding to make the active area even larger
+        py: 1,
+        // Visual feedback area
+        '&::before': isDraggedOver ? {
+          content: '""',
+          position: 'absolute',
+          top: '50%',
+          left: 0,
+          right: 0,
+          height: '3px',
+          backgroundColor: 'primary.main',
+          borderRadius: '2px',
+          boxShadow: '0 0 8px rgba(25, 118, 210, 0.4)',
+          transform: 'translateY(-50%)',
+          transition: 'all 0.2s ease',
+        } : {},
       }}
     >
-      {isDraggedOver && (
+      {/* Optional: Add a subtle visual hint when not dragging */}
+      {!isDraggedOver && (
         <Box
           sx={{
             width: '100%',
-            height: '3px',
-            backgroundColor: 'primary.main',
-            borderRadius: '2px',
-            boxShadow: '0 0 4px rgba(25, 118, 210, 0.5)',
+            height: '2px',
+            backgroundColor: 'transparent',
+            borderTop: '1px dashed',
+            borderColor: 'divider',
+            opacity: 0.3,
+            transition: 'opacity 0.2s ease',
           }}
         />
       )}
