@@ -9,7 +9,9 @@ const config = {
   host: params.hostname,
   port: parseInt(params.port),
   database: params.pathname.split('/')[1],
-  ssl: true,
+  ssl: {
+    rejectUnauthorized: false,
+  },
 };
 
   const pool = new Pool(config);
