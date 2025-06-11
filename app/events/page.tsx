@@ -24,8 +24,10 @@ import {
   Select,
   MenuItem,
   OutlinedInput,
+  Menu,
+  CardActions,
 } from '@mui/material';
-import { Add, Event, ArrowBack, AccessTime } from '@mui/icons-material';
+import { Add, Event, ArrowBack, AccessTime, MoreVert, Edit, Delete } from '@mui/icons-material';
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -37,7 +39,8 @@ export default function EventsPage() {
   const [events, setEvents] = useState<EventWithCharacters[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [newEvent, setNewEvent] = useState({
+  const [editingEvent, setEditingEvent] = useState<EventWithCharacters | null>(null);
+  const [eventForm, setEventForm] = useState({
     title: '',
     description: '',
     event_date: dayjs() as Dayjs,
@@ -50,6 +53,8 @@ export default function EventsPage() {
     message: '', 
     severity: 'success' as 'success' | 'error' 
   });
+  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  const [selectedEvent, setSelectedEvent] = useState<EventWithCharacters | null>(null);
 
   useEffect(() => {
     fetchEvents();
@@ -85,52 +90,119 @@ export default function EventsPage() {
     }
   };
 
-  const handleCreateEvent = async () => {
-    if (!newEvent.title.trim()) {
+  const handleOpenCreateDialog = () => {
+    setEditingEvent(null);
+    setEventForm({
+      title: '',
+      description: '',
+      event_date: dayjs(),
+      character_ids: [],
+      roles: [],
+    });
+    setDialogOpen(true);
+  };
+
+  const handleOpenEditDialog = (event: EventWithCharacters) => {
+    setEditingEvent(event);
+    setEventForm({
+      title: event.title,
+      description: event.description || '',
+      event_date: dayjs(event.event_date),
+      character_ids: event.characters ? event.characters.map((c: any) => c.id) : [],
+      roles: event.characters ? event.characters.map((c: any) => c.role || '') : [],
+    });
+    setDialogOpen(true);
+    setMenuAnchor(null);
+  };
+
+  const handleSaveEvent = async () => {
+    if (!eventForm.title.trim()) {
       setSnackbar({ open: true, message: 'Event title is required', severity: 'error' });
       return;
     }
 
     try {
-      const response = await fetch('/api/events', {
-        method: 'POST',
+      const url = editingEvent ? `/api/events/${editingEvent.id}` : '/api/events';
+      const method = editingEvent ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ...newEvent,
-          event_date: newEvent.event_date.toISOString(),
+          ...eventForm,
+          event_date: eventForm.event_date.toISOString(),
         }),
       });
 
       if (response.ok) {
-        const event = await response.json();
-        await fetchEvents(); // Refresh the list to get characters data
+        await fetchEvents(); // Refresh the list to get updated data
         setDialogOpen(false);
-        setNewEvent({
+        setEventForm({
           title: '',
           description: '',
           event_date: dayjs(),
           character_ids: [],
           roles: [],
         });
-        setSnackbar({ open: true, message: 'Event created successfully', severity: 'success' });
+        setEditingEvent(null);
+        setSnackbar({ 
+          open: true, 
+          message: editingEvent ? 'Event updated successfully' : 'Event created successfully', 
+          severity: 'success' 
+        });
       } else {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to create event');
+        throw new Error(error.error || 'Failed to save event');
       }
     } catch (error: any) {
-      console.error('Error creating event:', error);
+      console.error('Error saving event:', error);
       setSnackbar({ open: true, message: error.message, severity: 'error' });
     }
   };
 
+  const handleDeleteEvent = async (event: EventWithCharacters) => {
+    if (!confirm(`Are you sure you want to delete "${event.title}"?`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/events/${event.id}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        setEvents(events.filter(e => e.id !== event.id));
+        setSnackbar({ open: true, message: 'Event deleted successfully', severity: 'success' });
+      } else {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete event');
+      }
+    } catch (error: any) {
+      console.error('Error deleting event:', error);
+      setSnackbar({ open: true, message: error.message, severity: 'error' });
+    }
+    
+    setMenuAnchor(null);
+  };
+
   const handleCharacterChange = (event: any) => {
     const value = event.target.value;
-    setNewEvent({
-      ...newEvent,
+    setEventForm({
+      ...eventForm,
       character_ids: typeof value === 'string' ? value.split(',').map(Number) : value,
     });
+  };
+
+  const handleMenuClick = (event: React.MouseEvent<HTMLElement>, eventItem: EventWithCharacters) => {
+    setMenuAnchor(event.currentTarget);
+    setSelectedEvent(eventItem);
+  };
+
+  const handleMenuClose = () => {
+    setMenuAnchor(null);
+    setSelectedEvent(null);
   };
 
   if (loading) {
@@ -162,9 +234,17 @@ export default function EventsPage() {
                 <Box display="flex" alignItems="flex-start" gap={2}>
                   <AccessTime sx={{ color: 'primary.main', mt: 0.5 }} />
                   <Box flexGrow={1}>
-                    <Typography variant="h6" component="h2" mb={1}>
-                      {event.title}
-                    </Typography>
+                    <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                      <Typography variant="h6" component="h2">
+                        {event.title}
+                      </Typography>
+                      <IconButton 
+                        onClick={(e) => handleMenuClick(e, event)}
+                        size="small"
+                      >
+                        <MoreVert />
+                      </IconButton>
+                    </Box>
                     <Typography variant="body2" color="textSecondary" mb={1}>
                       {dayjs(event.event_date).format('MMMM D, YYYY [at] h:mm A')}
                     </Typography>
@@ -205,17 +285,35 @@ export default function EventsPage() {
           </Box>
         )}
 
-        <Fab
+                <Fab
           color="primary"
           aria-label="add"
           sx={{ position: 'fixed', bottom: 16, right: 16 }}
-          onClick={() => setDialogOpen(true)}
+          onClick={handleOpenCreateDialog}
         >
           <Add />
         </Fab>
 
+        <Menu
+          anchorEl={menuAnchor}
+          open={Boolean(menuAnchor)}
+          onClose={handleMenuClose}
+        >
+          <MenuItem onClick={() => selectedEvent && handleOpenEditDialog(selectedEvent)}>
+            <Edit sx={{ mr: 1 }} />
+            Edit
+          </MenuItem>
+          <MenuItem 
+            onClick={() => selectedEvent && handleDeleteEvent(selectedEvent)}
+            sx={{ color: 'error.main' }}
+          >
+            <Delete sx={{ mr: 1 }} />
+            Delete
+          </MenuItem>
+        </Menu>
+
         <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
-          <DialogTitle>Create New Event</DialogTitle>
+          <DialogTitle>{editingEvent ? 'Edit Event' : 'Create New Event'}</DialogTitle>
           <DialogContent>
             <Stack spacing={3} sx={{ mt: 1 }}>
               <TextField
@@ -223,20 +321,20 @@ export default function EventsPage() {
                 label="Event Title"
                 fullWidth
                 variant="outlined"
-                value={newEvent.title}
-                onChange={(e) => setNewEvent({ ...newEvent, title: e.target.value })}
+                value={eventForm.title}
+                onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
               />
               
-                             <DateTimePicker
-                 label="Event Date & Time"
-                 value={newEvent.event_date}
-                 onChange={(newValue) => setNewEvent({ ...newEvent, event_date: newValue || dayjs() })}
-                 slotProps={{
-                   textField: {
-                     fullWidth: true,
-                   },
-                 }}
-               />
+              <DateTimePicker
+                label="Event Date & Time"
+                value={eventForm.event_date}
+                onChange={(newValue) => setEventForm({ ...eventForm, event_date: newValue || dayjs() })}
+                slotProps={{
+                  textField: {
+                    fullWidth: true,
+                  },
+                }}
+              />
 
               <TextField
                 label="Description (optional)"
@@ -244,15 +342,15 @@ export default function EventsPage() {
                 multiline
                 rows={3}
                 variant="outlined"
-                value={newEvent.description}
-                onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })}
+                value={eventForm.description}
+                onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
               />
 
               <FormControl fullWidth>
                 <InputLabel>Characters Involved</InputLabel>
                 <Select
                   multiple
-                  value={newEvent.character_ids}
+                  value={eventForm.character_ids}
                   onChange={handleCharacterChange}
                   input={<OutlinedInput label="Characters Involved" />}
                   renderValue={(selected) => (
@@ -275,8 +373,8 @@ export default function EventsPage() {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreateEvent} variant="contained">
-              Create Event
+            <Button onClick={handleSaveEvent} variant="contained">
+              {editingEvent ? 'Update Event' : 'Create Event'}
             </Button>
           </DialogActions>
         </Dialog>
