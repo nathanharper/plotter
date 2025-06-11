@@ -19,7 +19,7 @@ export async function GET() {
       LEFT JOIN character_events ce ON e.id = ce.event_id
       LEFT JOIN characters c ON ce.character_id = c.id
       GROUP BY e.id
-      ORDER BY e.event_date ASC
+      ORDER BY e.position ASC
     `);
     return NextResponse.json(result.rows);
   } catch (error) {
@@ -33,18 +33,11 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const { title, description, event_date, character_ids, roles } = await request.json();
+    const { title, description, character_ids, roles } = await request.json();
     
     if (!title || title.trim() === '') {
       return NextResponse.json(
         { error: 'Event title is required' },
-        { status: 400 }
-      );
-    }
-
-    if (!event_date) {
-      return NextResponse.json(
-        { error: 'Event date is required' },
         { status: 400 }
       );
     }
@@ -54,12 +47,18 @@ export async function POST(request: NextRequest) {
     try {
       await client.query('BEGIN');
 
+      // Get the next position (add to end)
+      const positionResult = await client.query(
+        'SELECT COALESCE(MAX(position), 0) + 1 as next_position FROM events'
+      );
+      const nextPosition = positionResult.rows[0].next_position;
+
       // Insert the event
       const eventResult = await client.query(
-        `INSERT INTO events (title, description, event_date) 
+        `INSERT INTO events (title, description, position) 
          VALUES ($1, $2, $3) 
          RETURNING *`,
-        [title.trim(), description || null, new Date(event_date)]
+        [title.trim(), description || null, nextPosition]
       );
 
       const event = eventResult.rows[0];

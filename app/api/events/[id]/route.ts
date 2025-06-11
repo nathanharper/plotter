@@ -15,18 +15,11 @@ export async function PUT(
       );
     }
 
-    const { title, description, event_date, character_ids, roles } = await request.json();
+    const { title, description, character_ids, roles, position } = await request.json();
     
     if (!title || title.trim() === '') {
       return NextResponse.json(
         { error: 'Event title is required' },
-        { status: 400 }
-      );
-    }
-
-    if (!event_date) {
-      return NextResponse.json(
-        { error: 'Event date is required' },
         { status: 400 }
       );
     }
@@ -39,10 +32,10 @@ export async function PUT(
       // Update the event
       const eventResult = await client.query(
         `UPDATE events 
-         SET title = $1, description = $2, event_date = $3, updated_at = CURRENT_TIMESTAMP
+         SET title = $1, description = $2, position = $3, updated_at = CURRENT_TIMESTAMP
          WHERE id = $4 
          RETURNING *`,
-        [title.trim(), description || null, new Date(event_date), eventId]
+        [title.trim(), description || null, position || 0, eventId]
       );
 
       if (eventResult.rows.length === 0) {
@@ -55,23 +48,26 @@ export async function PUT(
 
       const event = eventResult.rows[0];
 
-      // Delete existing character-event relationships
-      await client.query(
-        'DELETE FROM character_events WHERE event_id = $1',
-        [eventId]
-      );
+      // Only update character relationships if provided
+      if (character_ids !== undefined) {
+        // Delete existing character-event relationships
+        await client.query(
+          'DELETE FROM character_events WHERE event_id = $1',
+          [eventId]
+        );
 
-      // Insert new character-event relationships
-      if (character_ids && character_ids.length > 0) {
-        for (let i = 0; i < character_ids.length; i++) {
-          const characterId = character_ids[i];
-          const role = roles && roles[i] ? roles[i] : null;
-          
-          await client.query(
-            `INSERT INTO character_events (character_id, event_id, role) 
-             VALUES ($1, $2, $3)`,
-            [characterId, eventId, role]
-          );
+        // Insert new character-event relationships
+        if (character_ids && character_ids.length > 0) {
+          for (let i = 0; i < character_ids.length; i++) {
+            const characterId = character_ids[i];
+            const role = roles && roles[i] ? roles[i] : null;
+            
+            await client.query(
+              `INSERT INTO character_events (character_id, event_id, role) 
+               VALUES ($1, $2, $3)`,
+              [characterId, eventId, role]
+            );
+          }
         }
       }
 

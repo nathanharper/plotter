@@ -21,7 +21,7 @@ export async function GET(
       FROM events e
       JOIN character_events ce ON e.id = ce.event_id
       WHERE ce.character_id = $1
-      ORDER BY e.event_date ASC
+      ORDER BY e.position ASC
     `, [characterId]);
 
     return NextResponse.json(result.rows);

@@ -10,12 +10,12 @@
     "db:setup": "node scripts/setup-db.js"
   },
   "dependencies": {
+    "@atlaskit/pragmatic-drag-and-drop": "^1.7.2",
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
     "@mui/icons-material": "^5.14.19",
     "@mui/material": "^5.14.20",
     "@mui/x-date-pickers": "^6.18.2",
-    "dayjs": "^1.11.10",
     "next": "^15.3.3",
     "next-pwa": "^5.6.0",
     "pg": "^8.11.3",

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Container,
   Typography,
@@ -25,13 +25,10 @@ import {
   MenuItem,
   OutlinedInput,
   Menu,
-  CardActions,
 } from '@mui/material';
-import { Add, Event, ArrowBack, AccessTime, MoreVert, Edit, Delete } from '@mui/icons-material';
-import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import dayjs, { Dayjs } from 'dayjs';
+import { Add, ArrowBack, DragIndicator, MoreVert, Edit, Delete } from '@mui/icons-material';
+import { draggable, dropTargetForElements, monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
+import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine';
 import Link from 'next/link';
 import { EventWithCharacters, Character } from '@/lib/db';
 
@@ -43,7 +40,6 @@ export default function EventsPage() {
   const [eventForm, setEventForm] = useState({
     title: '',
     description: '',
-    event_date: dayjs() as Dayjs,
     character_ids: [] as number[],
     roles: [] as string[],
   });
@@ -55,11 +51,41 @@ export default function EventsPage() {
   });
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [selectedEvent, setSelectedEvent] = useState<EventWithCharacters | null>(null);
+  const [draggedEventId, setDraggedEventId] = useState<number | null>(null);
 
   useEffect(() => {
     fetchEvents();
     fetchCharacters();
   }, []);
+
+  useEffect(() => {
+    return monitorForElements({
+      onDragStart({ source }: { source: any }) {
+        if (source.data.type === 'event') {
+          setDraggedEventId(source.data.eventId);
+        }
+      },
+      onDrop({ source, location }: { source: any; location: any }) {
+        const destination = location.current.dropTargets[0];
+        if (!destination) return;
+
+        const sourceData = source.data;
+        const destinationData = destination.data;
+
+        if (sourceData.type === 'event' && destinationData.type === 'drop-zone') {
+          const eventId = sourceData.eventId;
+          const dropZoneIndex = destinationData.index;
+          const currentIndex = events.findIndex(e => e.id === eventId);
+          
+          if (currentIndex !== -1) {
+            handleReorder(eventId, dropZoneIndex);
+          }
+        }
+        
+        setDraggedEventId(null);
+      },
+    });
+  }, [events]);
 
   const fetchEvents = async () => {
     try {
@@ -95,7 +121,6 @@ export default function EventsPage() {
     setEventForm({
       title: '',
       description: '',
-      event_date: dayjs(),
       character_ids: [],
       roles: [],
     });
@@ -107,7 +132,6 @@ export default function EventsPage() {
     setEventForm({
       title: event.title,
       description: event.description || '',
-      event_date: dayjs(event.event_date),
       character_ids: event.characters ? event.characters.map((c: any) => c.id) : [],
       roles: event.characters ? event.characters.map((c: any) => c.role || '') : [],
     });
@@ -130,10 +154,7 @@ export default function EventsPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ...eventForm,
-          event_date: eventForm.event_date.toISOString(),
-        }),
+        body: JSON.stringify(eventForm),
       });
 
       if (response.ok) {
@@ -142,7 +163,6 @@ export default function EventsPage() {
         setEventForm({
           title: '',
           description: '',
-          event_date: dayjs(),
           character_ids: [],
           roles: [],
         });
@@ -205,6 +225,96 @@ export default function EventsPage() {
     setSelectedEvent(null);
   };
 
+  const handleReorder = async (eventId: number, dropZoneIndex: number) => {
+    // Find the event being moved
+    const eventToMove = events.find(e => e.id === eventId);
+    if (!eventToMove) return;
+
+    // Calculate the new fractional position based on drop zone index
+    let newPosition: number;
+    
+    if (dropZoneIndex === 0) {
+      // Moving to the beginning (before first event)
+      const firstEvent = events[0];
+      newPosition = firstEvent ? parseFloat(firstEvent.position.toString()) - 1 : 1;
+    } else if (dropZoneIndex >= events.length) {
+      // Moving to the end (after last event)
+      const lastEvent = events[events.length - 1];
+      newPosition = lastEvent ? parseFloat(lastEvent.position.toString()) + 1 : 1;
+    } else {
+      // Moving between events
+      // dropZoneIndex represents the position after the (dropZoneIndex-1)th event
+      const prevEvent = events[dropZoneIndex - 1];
+      const nextEvent = events[dropZoneIndex];
+      
+      if (prevEvent && nextEvent) {
+        // Position between two events
+        const prevPos = parseFloat(prevEvent.position.toString());
+        const nextPos = parseFloat(nextEvent.position.toString());
+        newPosition = (prevPos + nextPos) / 2;
+      } else if (prevEvent) {
+        // After the previous event
+        newPosition = parseFloat(prevEvent.position.toString()) + 1;
+      } else if (nextEvent) {
+        // Before the next event
+        newPosition = parseFloat(nextEvent.position.toString()) - 1;
+      } else {
+        // Fallback
+        newPosition = 1;
+      }
+    }
+
+    // Ensure we have a valid position
+    if (isNaN(newPosition) || newPosition === null || newPosition === undefined) {
+      console.error('Invalid newPosition calculated:', newPosition);
+      return;
+    }
+
+    // Optimistically update the UI
+    const currentIndex = events.findIndex(e => e.id === eventId);
+    if (currentIndex !== -1) {
+      const newEvents = [...events];
+      const [removed] = newEvents.splice(currentIndex, 1);
+      
+      // Insert at the correct position
+      let insertIndex = dropZoneIndex;
+      if (currentIndex < dropZoneIndex) {
+        insertIndex = dropZoneIndex - 1;
+      }
+      
+      newEvents.splice(insertIndex, 0, { ...removed, position: newPosition });
+      setEvents(newEvents);
+    }
+
+    try {
+      const response = await fetch('/api/events/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId,
+          newPosition,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error('Failed to reorder event:', response);
+        throw new Error('Failed to reorder event');
+      }
+
+      // Refresh events from server to ensure consistency
+      await fetchEvents();
+    } catch (error) {
+      console.error('Error reordering event:', error);
+      setSnackbar({
+        open: true,
+        message: 'Failed to reorder event',
+        severity: 'error',
+      });
+      // Revert on error
+      await fetchEvents();
+    }
+  };
+
   if (loading) {
     return (
       <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -214,179 +324,271 @@ export default function EventsPage() {
   }
 
   return (
-    <LocalizationProvider dateAdapter={AdapterDayjs}>
-      <Container maxWidth="lg" sx={{ py: 4 }}>
-        <Box display="flex" alignItems="center" mb={4}>
-          <Link href="/" style={{ textDecoration: 'none', marginRight: 16 }}>
-            <IconButton>
-              <ArrowBack />
-            </IconButton>
-          </Link>
-          <Typography variant="h4" component="h1" color="primary">
-            Events Timeline
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Box display="flex" alignItems="center" mb={4}>
+        <Link href="/" style={{ textDecoration: 'none', marginRight: 16 }}>
+          <IconButton>
+            <ArrowBack />
+          </IconButton>
+        </Link>
+        <Typography variant="h4" component="h1" color="primary">
+          Events Timeline
+        </Typography>
+      </Box>
+
+      <Box>
+        {/* Drop zone before first event */}
+        <DropZone index={0} isDraggedOver={false} />
+        
+        {events.map((event, index) => (
+          <React.Fragment key={event.id}>
+            <EventCard
+              event={event}
+              index={index}
+              onMenuClick={handleMenuClick}
+              isDraggedItem={draggedEventId === event.id}
+            />
+            {/* Drop zone after each event */}
+            <DropZone index={index + 1} isDraggedOver={false} />
+          </React.Fragment>
+        ))}
+      </Box>
+
+      {events.length === 0 && (
+        <Box textAlign="center" mt={4}>
+          <Typography variant="h6" color="textSecondary">
+            No events yet. Create your first event!
           </Typography>
         </Box>
+      )}
 
-        <Stack spacing={3}>
-          {events.map((event) => (
-            <Card key={event.id} sx={{ position: 'relative' }}>
-              <CardContent>
-                <Box display="flex" alignItems="flex-start" gap={2}>
-                  <AccessTime sx={{ color: 'primary.main', mt: 0.5 }} />
-                  <Box flexGrow={1}>
-                    <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-                      <Typography variant="h6" component="h2">
-                        {event.title}
-                      </Typography>
-                      <IconButton 
-                        onClick={(e) => handleMenuClick(e, event)}
-                        size="small"
-                      >
-                        <MoreVert />
-                      </IconButton>
-                    </Box>
-                    <Typography variant="body2" color="textSecondary" mb={1}>
-                      {dayjs(event.event_date).format('MMMM D, YYYY [at] h:mm A')}
-                    </Typography>
-                    {event.description && (
-                      <Typography variant="body1" mb={2}>
-                        {event.description}
-                      </Typography>
-                    )}
-                    {event.characters && event.characters.length > 0 && (
-                      <Box>
-                        <Typography variant="subtitle2" mb={1}>
-                          Characters involved:
-                        </Typography>
-                        <Stack direction="row" spacing={1} flexWrap="wrap">
-                          {event.characters.map((character: any) => (
-                            <Chip
-                              key={character.id}
-                              label={character.role ? `${character.name} (${character.role})` : character.name}
-                              size="small"
-                              variant="outlined"
-                            />
-                          ))}
-                        </Stack>
-                      </Box>
-                    )}
+      <Fab
+        color="primary"
+        aria-label="add"
+        sx={{ position: 'fixed', bottom: 16, right: 16 }}
+        onClick={handleOpenCreateDialog}
+      >
+        <Add />
+      </Fab>
+
+      <Menu
+        anchorEl={menuAnchor}
+        open={Boolean(menuAnchor)}
+        onClose={handleMenuClose}
+      >
+        <MenuItem onClick={() => selectedEvent && handleOpenEditDialog(selectedEvent)}>
+          <Edit sx={{ mr: 1 }} />
+          Edit
+        </MenuItem>
+        <MenuItem 
+          onClick={() => selectedEvent && handleDeleteEvent(selectedEvent)}
+          sx={{ color: 'error.main' }}
+        >
+          <Delete sx={{ mr: 1 }} />
+          Delete
+        </MenuItem>
+      </Menu>
+
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>{editingEvent ? 'Edit Event' : 'Create New Event'}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={3} sx={{ mt: 1 }}>
+            <TextField
+              autoFocus
+              label="Event Title"
+              fullWidth
+              variant="outlined"
+              value={eventForm.title}
+              onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
+            />
+
+            <TextField
+              label="Description (optional)"
+              fullWidth
+              multiline
+              rows={3}
+              variant="outlined"
+              value={eventForm.description}
+              onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
+            />
+
+            <FormControl fullWidth>
+              <InputLabel>Characters Involved</InputLabel>
+              <Select
+                multiple
+                value={eventForm.character_ids}
+                onChange={handleCharacterChange}
+                input={<OutlinedInput label="Characters Involved" />}
+                renderValue={(selected) => (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {(selected as number[]).map((value) => {
+                      const character = characters.find((c) => c.id === value);
+                      return <Chip key={value} label={character?.name} size="small" />;
+                    })}
                   </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          ))}
-        </Stack>
+                )}
+              >
+                {characters.map((character) => (
+                  <MenuItem key={character.id} value={character.id}>
+                    {character.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleSaveEvent} variant="contained">
+            {editingEvent ? 'Update Event' : 'Create Event'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
-        {events.length === 0 && (
-          <Box textAlign="center" mt={4}>
-            <Typography variant="h6" color="textSecondary">
-              No events yet. Create your first event!
-            </Typography>
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+      >
+        <Alert severity={snackbar.severity}>{snackbar.message}</Alert>
+      </Snackbar>
+    </Container>
+  );
+}
+
+interface EventCardProps {
+  event: EventWithCharacters;
+  index: number;
+  onMenuClick: (event: React.MouseEvent<HTMLElement>, eventItem: EventWithCharacters) => void;
+  isDraggedItem: boolean;
+}
+
+function EventCard({ event, index, onMenuClick, isDraggedItem }: EventCardProps) {
+  const [isDragging, setIsDragging] = useState(false);
+
+  useEffect(() => {
+    const eventElement = document.querySelector(`[data-event-id="${event.id}"]`) as HTMLElement;
+    if (!eventElement) return;
+
+    return draggable({
+      element: eventElement,
+      getInitialData: () => ({ type: 'event', eventId: event.id, index }),
+      onDragStart: () => setIsDragging(true),
+      onDrop: () => setIsDragging(false),
+    });
+  }, [event.id, index]);
+
+  return (
+    <Card 
+      data-event-id={event.id}
+      sx={{ 
+        position: 'relative',
+        transform: isDragging ? 'rotate(2deg)' : 'none',
+        opacity: isDraggedItem ? 0.5 : 1,
+        transition: 'transform 0.2s ease, opacity 0.2s ease',
+        cursor: 'grab',
+        mb: 2,
+        '&:active': {
+          cursor: 'grabbing',
+        },
+      }}
+    >
+      <CardContent>
+        <Box display="flex" alignItems="flex-start" gap={2}>
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            color: 'text.secondary',
+            mt: 0.5 
+          }}>
+            <DragIndicator />
           </Box>
-        )}
-
-                <Fab
-          color="primary"
-          aria-label="add"
-          sx={{ position: 'fixed', bottom: 16, right: 16 }}
-          onClick={handleOpenCreateDialog}
-        >
-          <Add />
-        </Fab>
-
-        <Menu
-          anchorEl={menuAnchor}
-          open={Boolean(menuAnchor)}
-          onClose={handleMenuClose}
-        >
-          <MenuItem onClick={() => selectedEvent && handleOpenEditDialog(selectedEvent)}>
-            <Edit sx={{ mr: 1 }} />
-            Edit
-          </MenuItem>
-          <MenuItem 
-            onClick={() => selectedEvent && handleDeleteEvent(selectedEvent)}
-            sx={{ color: 'error.main' }}
-          >
-            <Delete sx={{ mr: 1 }} />
-            Delete
-          </MenuItem>
-        </Menu>
-
-        <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
-          <DialogTitle>{editingEvent ? 'Edit Event' : 'Create New Event'}</DialogTitle>
-          <DialogContent>
-            <Stack spacing={3} sx={{ mt: 1 }}>
-              <TextField
-                autoFocus
-                label="Event Title"
-                fullWidth
-                variant="outlined"
-                value={eventForm.title}
-                onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
-              />
-              
-              <DateTimePicker
-                label="Event Date & Time"
-                value={eventForm.event_date}
-                onChange={(newValue) => setEventForm({ ...eventForm, event_date: newValue || dayjs() })}
-                slotProps={{
-                  textField: {
-                    fullWidth: true,
-                  },
-                }}
-              />
-
-              <TextField
-                label="Description (optional)"
-                fullWidth
-                multiline
-                rows={3}
-                variant="outlined"
-                value={eventForm.description}
-                onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
-              />
-
-              <FormControl fullWidth>
-                <InputLabel>Characters Involved</InputLabel>
-                <Select
-                  multiple
-                  value={eventForm.character_ids}
-                  onChange={handleCharacterChange}
-                  input={<OutlinedInput label="Characters Involved" />}
-                  renderValue={(selected) => (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {(selected as number[]).map((value) => {
-                        const character = characters.find((c) => c.id === value);
-                        return <Chip key={value} label={character?.name} size="small" />;
-                      })}
-                    </Box>
-                  )}
-                >
-                  {characters.map((character) => (
-                    <MenuItem key={character.id} value={character.id}>
-                      {character.name}
-                    </MenuItem>
+          <Box flexGrow={1}>
+            <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+              <Typography variant="h6" component="h2">
+                {event.title}
+              </Typography>
+              <IconButton 
+                onClick={(e) => onMenuClick(e, event)}
+                size="small"
+              >
+                <MoreVert />
+              </IconButton>
+            </Box>
+            {event.description && (
+              <Typography variant="body1" mb={2}>
+                {event.description}
+              </Typography>
+            )}
+            {event.characters && event.characters.length > 0 && (
+              <Box>
+                <Typography variant="subtitle2" mb={1}>
+                  Characters involved:
+                </Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap">
+                  {event.characters.map((character: any) => (
+                    <Chip
+                      key={character.id}
+                      label={character.role ? `${character.name} (${character.role})` : character.name}
+                      size="small"
+                      variant="outlined"
+                    />
                   ))}
-                </Select>
-              </FormControl>
-            </Stack>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveEvent} variant="contained">
-              {editingEvent ? 'Update Event' : 'Create Event'}
-            </Button>
-          </DialogActions>
-        </Dialog>
+                </Stack>
+              </Box>
+            )}
+          </Box>
+        </Box>
+      </CardContent>
+    </Card>
+  );
+}
 
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={6000}
-          onClose={() => setSnackbar({ ...snackbar, open: false })}
-        >
-          <Alert severity={snackbar.severity}>{snackbar.message}</Alert>
-        </Snackbar>
-      </Container>
-    </LocalizationProvider>
+interface DropZoneProps {
+  index: number;
+  isDraggedOver: boolean;
+}
+
+function DropZone({ index }: DropZoneProps) {
+  const [isDraggedOver, setIsDraggedOver] = useState(false);
+
+  useEffect(() => {
+    const dropZoneElement = document.querySelector(`[data-drop-zone="${index}"]`) as HTMLElement;
+    if (!dropZoneElement) return;
+
+    return dropTargetForElements({
+      element: dropZoneElement,
+      getData: () => ({ type: 'drop-zone', index }),
+      canDrop: ({ source }: { source: any }) => source.data.type === 'event',
+      onDragEnter: () => setIsDraggedOver(true),
+      onDragLeave: () => setIsDraggedOver(false),
+      onDrop: () => setIsDraggedOver(false),
+    });
+  }, [index]);
+
+  return (
+    <Box
+      data-drop-zone={index}
+      sx={{
+        height: isDraggedOver ? '4px' : '16px',
+        position: 'relative',
+        transition: 'height 0.2s ease',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {isDraggedOver && (
+        <Box
+          sx={{
+            width: '100%',
+            height: '3px',
+            backgroundColor: 'primary.main',
+            borderRadius: '2px',
+            boxShadow: '0 0 4px rgba(25, 118, 210, 0.5)',
+          }}
+        />
+      )}
+    </Box>
   );
 } 

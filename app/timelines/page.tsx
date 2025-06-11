@@ -18,7 +18,6 @@ import {
   Divider,
 } from '@mui/material';
 import { ArrowBack, Timeline as TimelineIcon, People } from '@mui/icons-material';
-import dayjs from 'dayjs';
 import Link from 'next/link';
 import { Character, Event } from '@/lib/db';
 
@@ -222,9 +221,6 @@ export default function TimelinesPage() {
                     <Box flexGrow={1}>
                       <Typography variant="h6" component="h3" mb={1}>
                         {event.title}
-                      </Typography>
-                      <Typography variant="body2" color="textSecondary" mb={1}>
-                        {dayjs(event.event_date).format('MMMM D, YYYY [at] h:mm A')}
                       </Typography>
                       {event.description && (
                         <Typography variant="body1" mb={2}>

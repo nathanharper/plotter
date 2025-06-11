@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       JOIN character_events ce2 ON e.id = ce2.event_id AND ce2.character_id = $2
       JOIN characters c1 ON ce1.character_id = c1.id
       JOIN characters c2 ON ce2.character_id = c2.id
-      ORDER BY e.event_date ASC
+      ORDER BY e.position ASC
     `, [id1, id2]);
 
     return NextResponse.json(result.rows);

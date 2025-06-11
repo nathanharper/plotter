@@ -27,7 +27,7 @@ const createTables = async () => {
         id SERIAL PRIMARY KEY,
         title VARCHAR(255) NOT NULL,
         description TEXT,
-        event_date TIMESTAMP WITH TIME ZONE NOT NULL,
+        position DECIMAL(20,10) NOT NULL DEFAULT 0,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
@@ -47,7 +47,7 @@ const createTables = async () => {
 
     // Create indexes for better performance
     await pool.query(`
-      CREATE INDEX IF NOT EXISTS idx_events_date ON events(event_date);
+      CREATE INDEX IF NOT EXISTS idx_events_position ON events(position);
       CREATE INDEX IF NOT EXISTS idx_character_events_character ON character_events(character_id);
       CREATE INDEX IF NOT EXISTS idx_character_events_event ON character_events(event_id);
     `);

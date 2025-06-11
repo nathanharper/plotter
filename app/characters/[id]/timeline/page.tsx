@@ -27,10 +27,6 @@ import {
   Alert,
 } from '@mui/material';
 import { ArrowBack, Timeline as TimelineIcon, Add } from '@mui/icons-material';
-import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import dayjs, { Dayjs } from 'dayjs';
 import Link from 'next/link';
 import { Character, Event } from '@/lib/db';
 
@@ -49,7 +45,6 @@ export default function CharacterTimelinePage() {
   const [eventForm, setEventForm] = useState({
     title: '',
     description: '',
-    event_date: dayjs() as Dayjs,
     character_ids: [] as number[],
     roles: [] as string[],
   });
@@ -95,7 +90,6 @@ export default function CharacterTimelinePage() {
     setEventForm({
       title: '',
       description: '',
-      event_date: dayjs(),
       character_ids: [parseInt(characterId)], // Pre-select current character
       roles: [''],
     });
@@ -114,10 +108,7 @@ export default function CharacterTimelinePage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ...eventForm,
-          event_date: eventForm.event_date.toISOString(),
-        }),
+        body: JSON.stringify(eventForm),
       });
 
       if (response.ok) {
@@ -132,7 +123,6 @@ export default function CharacterTimelinePage() {
         setEventForm({
           title: '',
           description: '',
-          event_date: dayjs(),
           character_ids: [],
           roles: [],
         });
@@ -172,154 +162,138 @@ export default function CharacterTimelinePage() {
   }
 
   return (
-    <LocalizationProvider dateAdapter={AdapterDayjs}>
-      <Container maxWidth="lg" sx={{ py: 4 }}>
-        <Box display="flex" alignItems="center" mb={4}>
-          <Link href="/characters" style={{ textDecoration: 'none', marginRight: 16 }}>
-            <IconButton>
-              <ArrowBack />
-            </IconButton>
-          </Link>
-          <Box>
-            <Typography variant="h4" component="h1" color="primary">
-              {character.name}'s Timeline
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Box display="flex" alignItems="center" mb={4}>
+        <Link href="/characters" style={{ textDecoration: 'none', marginRight: 16 }}>
+          <IconButton>
+            <ArrowBack />
+          </IconButton>
+        </Link>
+        <Box>
+          <Typography variant="h4" component="h1" color="primary">
+            {character.name}'s Timeline
+          </Typography>
+          {character.description && (
+            <Typography variant="body1" color="textSecondary" mt={1}>
+              {character.description}
             </Typography>
-            {character.description && (
-              <Typography variant="body1" color="textSecondary" mt={1}>
-                {character.description}
-              </Typography>
-            )}
-          </Box>
+          )}
         </Box>
+      </Box>
 
-        {timeline.length > 0 ? (
-          <Stack spacing={3}>
-            {timeline.map((event) => (
-              <Card key={event.id}>
-                <CardContent>
-                  <Box display="flex" alignItems="flex-start" gap={2}>
-                    <TimelineIcon sx={{ color: 'primary.main', mt: 0.5 }} />
-                    <Box flexGrow={1}>
-                      <Typography variant="h6" component="h3" mb={1}>
-                        {event.title}
+      {timeline.length > 0 ? (
+        <Stack spacing={3}>
+          {timeline.map((event) => (
+            <Card key={event.id}>
+              <CardContent>
+                <Box display="flex" alignItems="flex-start" gap={2}>
+                  <TimelineIcon sx={{ color: 'primary.main', mt: 0.5 }} />
+                  <Box flexGrow={1}>
+                    <Typography variant="h6" component="h3" mb={1}>
+                      {event.title}
+                    </Typography>
+                    {event.description && (
+                      <Typography variant="body1" mb={2}>
+                        {event.description}
                       </Typography>
-                      <Typography variant="body2" color="textSecondary" mb={1}>
-                        {dayjs(event.event_date).format('MMMM D, YYYY [at] h:mm A')}
-                      </Typography>
-                      {event.description && (
-                        <Typography variant="body1" mb={2}>
-                          {event.description}
-                        </Typography>
-                      )}
-                      {event.role && (
-                        <Chip
-                          label={`Role: ${event.role}`}
-                          size="small"
-                          color="primary"
-                          variant="outlined"
-                        />
-                      )}
-                    </Box>
+                    )}
+                    {event.role && (
+                      <Chip
+                        label={`Role: ${event.role}`}
+                        size="small"
+                        color="primary"
+                        variant="outlined"
+                      />
+                    )}
                   </Box>
-                </CardContent>
-              </Card>
-            ))}
+                </Box>
+              </CardContent>
+            </Card>
+          ))}
+        </Stack>
+      ) : (
+        <Box textAlign="center" mt={4}>
+          <Typography variant="h6" color="textSecondary">
+            No events found for {character.name}.
+          </Typography>
+          <Typography variant="body2" color="textSecondary" mt={1}>
+            Events involving this character will appear here.
+          </Typography>
+        </Box>
+      )}
+
+      <Fab
+        color="primary"
+        aria-label="add event"
+        sx={{ position: 'fixed', bottom: 16, right: 16 }}
+        onClick={handleOpenCreateDialog}
+      >
+        <Add />
+      </Fab>
+
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Create New Event for {character.name}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={3} sx={{ mt: 1 }}>
+            <TextField
+              autoFocus
+              label="Event Title"
+              fullWidth
+              variant="outlined"
+              value={eventForm.title}
+              onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
+            />
+
+            <TextField
+              label="Description (optional)"
+              fullWidth
+              multiline
+              rows={3}
+              variant="outlined"
+              value={eventForm.description}
+              onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
+            />
+
+            <FormControl fullWidth>
+              <InputLabel>Characters Involved</InputLabel>
+              <Select
+                multiple
+                value={eventForm.character_ids}
+                onChange={handleCharacterChange}
+                input={<OutlinedInput label="Characters Involved" />}
+                renderValue={(selected) => (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {(selected as number[]).map((value) => {
+                      const char = characters.find((c) => c.id === value);
+                      return <Chip key={value} label={char?.name} size="small" />;
+                    })}
+                  </Box>
+                )}
+              >
+                {characters.map((char) => (
+                  <MenuItem key={char.id} value={char.id}>
+                    {char.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Stack>
-        ) : (
-          <Box textAlign="center" mt={4}>
-            <Typography variant="h6" color="textSecondary">
-              No events found for {character.name}.
-            </Typography>
-            <Typography variant="body2" color="textSecondary" mt={1}>
-              Events involving this character will appear here.
-            </Typography>
-          </Box>
-        )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleSaveEvent} variant="contained">
+            Create Event
+          </Button>
+        </DialogActions>
+      </Dialog>
 
-        <Fab
-          color="primary"
-          aria-label="add event"
-          sx={{ position: 'fixed', bottom: 16, right: 16 }}
-          onClick={handleOpenCreateDialog}
-        >
-          <Add />
-        </Fab>
-
-        <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
-          <DialogTitle>Create New Event for {character.name}</DialogTitle>
-          <DialogContent>
-            <Stack spacing={3} sx={{ mt: 1 }}>
-              <TextField
-                autoFocus
-                label="Event Title"
-                fullWidth
-                variant="outlined"
-                value={eventForm.title}
-                onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
-              />
-              
-              <DateTimePicker
-                label="Event Date & Time"
-                value={eventForm.event_date}
-                onChange={(newValue) => setEventForm({ ...eventForm, event_date: newValue || dayjs() })}
-                slotProps={{
-                  textField: {
-                    fullWidth: true,
-                  },
-                }}
-              />
-
-              <TextField
-                label="Description (optional)"
-                fullWidth
-                multiline
-                rows={3}
-                variant="outlined"
-                value={eventForm.description}
-                onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
-              />
-
-              <FormControl fullWidth>
-                <InputLabel>Characters Involved</InputLabel>
-                <Select
-                  multiple
-                  value={eventForm.character_ids}
-                  onChange={handleCharacterChange}
-                  input={<OutlinedInput label="Characters Involved" />}
-                  renderValue={(selected) => (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {(selected as number[]).map((value) => {
-                        const char = characters.find((c) => c.id === value);
-                        return <Chip key={value} label={char?.name} size="small" />;
-                      })}
-                    </Box>
-                  )}
-                >
-                  {characters.map((char) => (
-                    <MenuItem key={char.id} value={char.id}>
-                      {char.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Stack>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveEvent} variant="contained">
-              Create Event
-            </Button>
-          </DialogActions>
-        </Dialog>
-
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={6000}
-          onClose={() => setSnackbar({ ...snackbar, open: false })}
-        >
-          <Alert severity={snackbar.severity}>{snackbar.message}</Alert>
-        </Snackbar>
-      </Container>
-    </LocalizationProvider>
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+      >
+        <Alert severity={snackbar.severity}>{snackbar.message}</Alert>
+      </Snackbar>
+    </Container>
   );
 } 
